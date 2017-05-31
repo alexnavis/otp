@@ -328,11 +328,13 @@ generate_outgoing_msg(Message, SecEngineID, SecName, SecData, SecLevel) ->
 	    _ -> % 3.1.1a
 		SecData
 	end,
+	SecEngineBoots = get_engine_boots(SecEngineID),
+	SecEngineTime  = get_engine_time(SecEngineID),
     %% 3.1.4
     ?vtrace("generate_outgoing_msg -> (3.1.4)",[]),
     ScopedPduBytes = Message#message.data,
     {ScopedPduData, MsgPrivParams} =
-	encrypt(ScopedPduBytes, PrivProtocol, PrivKey, SecLevel),
+	encrypt(ScopedPduBytes, PrivProtocol, PrivKey, SecLevel, SecEngineBoots, SecEngineTime),
     SnmpEngineID = get_engine_id(),
     ?vtrace("SnmpEngineID: ~p (3.1.6)",[SnmpEngineID]),
     %% 3.1.6
@@ -341,7 +343,7 @@ generate_outgoing_msg(Message, SecEngineID, SecName, SecData, SecLevel) ->
 	    false when SecData == [] -> % not a response
 		{0, 0}; 
 	    true when SecEngineID /= SnmpEngineID ->
-		{get_engine_boots(SecEngineID), get_engine_time(SecEngineID)};
+		{SecEngineBoots, SecEngineTime};
 	    _ ->
 		{get_engine_boots(), get_engine_time()}
 	end,
@@ -361,12 +363,12 @@ generate_outgoing_msg(Message, SecEngineID, SecName, SecData, SecLevel) ->
 
 
 %% Ret: {ScopedPDU, MsgPrivParams} - both are already encoded as OCTET STRINGs
-encrypt(Data, PrivProtocol, PrivKey, SecLevel) ->
+encrypt(Data, PrivProtocol, PrivKey, SecLevel, SecEngineBoots, SecEngineTime) ->
     case snmp_misc:is_priv(SecLevel) of
 	false -> % 3.1.4b
 	    {Data, []};
 	true -> % 3.1.4a
-	    case (catch try_encrypt(PrivProtocol, PrivKey, Data)) of
+	    case (catch try_encrypt(PrivProtocol, PrivKey, Data, SecEngineBoots, SecEngineTime)) of
 		{ok, ScopedPduData, MsgPrivParams} ->
 		    {snmp_pdus:enc_oct_str_tag(ScopedPduData), MsgPrivParams};
 		{error, Reason} ->
@@ -376,12 +378,12 @@ encrypt(Data, PrivProtocol, PrivKey, SecLevel) ->
 	    end
     end.
 
-try_encrypt(usmNoPrivProtocol, _PrivKey, _Data) -> % 3.1.2
+try_encrypt(usmNoPrivProtocol, _PrivKey, _Data, _, _) -> % 3.1.2
     error(unsupportedSecurityLevel);
-try_encrypt(usmDESPrivProtocol, PrivKey, Data) ->
+try_encrypt(usmDESPrivProtocol, PrivKey, Data, _, _) ->
     des_encrypt(PrivKey, Data);
-try_encrypt(usmAesCfb128Protocol, PrivKey, Data) ->
-    aes_encrypt(PrivKey, Data).
+try_encrypt(usmAesCfb128Protocol, PrivKey, Data, SecEngineBoots, SecEngineTime) ->
+    aes_encrypt(PrivKey, Data, SecEngineBoots, SecEngineTime).
 
 authenticate_outgoing(Message, UsmSecParams, 
 		      AuthKey, AuthProtocol, SecLevel) ->
@@ -419,11 +421,9 @@ get_des_salt() ->
     EngineBoots = get_engine_boots(),
     [?i32(EngineBoots), ?i32(SaltInt)].
 
-aes_encrypt(PrivKey, Data) ->
-    EngineBoots = get_engine_boots(), 
-    EngineTime  = get_engine_time(), 
-    snmp_usm:aes_encrypt(PrivKey, Data, fun get_aes_salt/0, 
-			 EngineBoots, EngineTime).
+aes_encrypt(PrivKey, Data, SecEngineBoots, SecEngineTime) ->
+    snmp_usm:aes_encrypt(PrivKey, Data, fun get_aes_salt/0,
+			SecEngineBoots, SecEngineTime).
 
 aes_decrypt(PrivKey, UsmSecParams, EncData) ->
     #usmSecurityParameters{msgPrivacyParameters        = MsgPrivParams,
