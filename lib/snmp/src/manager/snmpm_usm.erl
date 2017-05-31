@@ -267,16 +267,17 @@ decrypt(Data, UsmUser, UsmSecParams, SecLevel) ->
 
 do_decrypt(Data, #usm_user{sec_name = SecName,
 			   priv     = PrivP,
-			   priv_key = PrivKey}, 
-	   #usmSecurityParameters{msgPrivacyParameters = PrivParms}) ->
+			   priv_key = PrivKey},
+				 UsmSecParams) ->
     EncryptedPDU = snmp_pdus:dec_scoped_pdu_data(Data),
-    try_decrypt(PrivP, PrivKey, PrivParms, EncryptedPDU, SecName).
+    try_decrypt(PrivP, PrivKey, UsmSecParams, EncryptedPDU, SecName).
 
 try_decrypt(usmNoPrivProtocol, _, _, _, SecName) -> % 3.2.5
     error(usmStatsUnsupportedSecLevels, 
 	  ?usmStatsUnsupportedSecLevels_instance, SecName);
 try_decrypt(usmDESPrivProtocol, 
-	    PrivKey, MsgPrivParams, EncryptedPDU, SecName) ->
+	    PrivKey, UsmSecParams, EncryptedPDU, SecName) ->
+		#usmSecurityParameters{msgPrivacyParameters = MsgPrivParams} = UsmSecParams,
     case (catch des_decrypt(PrivKey, MsgPrivParams, EncryptedPDU)) of
 	{ok, DecryptedData} ->
 	    DecryptedData;
